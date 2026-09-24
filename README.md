@@ -1,36 +1,51 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Powerzone Fitness — Gym Management
 
-## Getting Started
+Admin panel for a gym built with **Next.js (App Router)**, **TypeScript**, **Tailwind CSS v4**, and **Supabase**. Members, memberships, and daily attendance management for Powerzone Fitness.
 
-First, run the development server:
+## Features
+
+- **Auth** — email/password login (Supabase Auth). Admin pages are guarded client-side by `components/AuthGuard`.
+- **Dashboard** — total / active / expired member counts, today's attendance, recent members.
+- **Members** — list with edit and delete (confirmation dialog), add-member form with plan-based end-date calculation.
+- **Attendance** — check active members in once per day (DB-unique on `member_id, date`), today's check-in list.
+
+## Getting started
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open http://localhost:3000.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### Environment variables
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Create `.env.local` (gitignored):
 
-## Learn More
+```
+NEXT_PUBLIC_SUPABASE_URL=...
+NEXT_PUBLIC_SUPABASE_ANON_KEY=...
+```
 
-To learn more about Next.js, take a look at the following resources:
+From Supabase → Project Settings → API. The anon key is safe to expose publicly **only** because Row Level Security is enabled.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+### Creating the admin account
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+The app has no signup flow. Create the user once in **Supabase Dashboard → Authentication → Users → Add user**.
 
-## Deploy on Vercel
+## Database
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Both `members` and `attendance` tables use **Row Level Security** with `authenticated`-only policies. `membership_end` auto-expires daily via a pg_cron job (`expire-memberships`).
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Scripts
+
+```bash
+npm run dev      # development server
+npm run build    # production build (typechecks via Next)
+npm run lint     # eslint (flat config)
+npx tsc --noEmit # typecheck
+```
+
+## Deploy
+
+Recommended: [Vercel](https://vercel.com). Set both env vars in the project settings (they are baked in at build time), then deploy from the `main` branch. CI runs `lint` → `typecheck` → `build` on push/PR.

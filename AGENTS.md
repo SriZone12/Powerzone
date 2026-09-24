@@ -12,16 +12,17 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 - Single Next.js 16 App Router app (not a monorepo); package manager is **npm** (`package-lock.json` — do not use yarn/pnpm/bun).
 - Bundled Next.js docs: `node_modules/next/dist/docs/` (see managed block above). `CLAUDE.md` is just `@AGENTS.md`; this file is the single source of agent instructions.
-- **Two front doors.** The homepage `app/page.tsx` is a **client component**: a branded card that morphs hero ↔ login in place via `useState` (`"hero" | "login"`) — no routing happens there. Admin routes live in the `app/(app)/` route group:
-  - `app/(app)/layout.tsx` is the shared layout; it renders `components/Navbar.tsx` (a client component using `usePathname` from `next/navigation` for active-link highlighting, `startsWith` for `/members/*`).
+- **Auth-gated admin area.** The homepage `app/page.tsx` is a client component: a branded hero card linking to `/login`. Admin routes live in the `app/(app)/` route group:
+  - `app/(app)/layout.tsx` renders `components/AuthGuard.tsx` (client; checks `supabase.auth.getSession()` + `onAuthStateChange`) wrapping `components/Navbar.tsx` (a client component using `usePathname` from `next/navigation` for active-link highlighting, `startsWith` for `/members/*`).
   - `app/(app)/dashboard/`, `app/(app)/members/`, `app/(app)/members/add/`, `app/(app)/attendance/`.
-  - A standalone `app/login/page.tsx` also exists — it is the target of the Navbar "Logout" link, but nothing links *to* it from the homepage (login is the card morph).
+  - `app/login/page.tsx` renders `components/LoginForm.tsx` (`signInWithPassword` → `/dashboard`); Navbar "Logout" calls `signOut()` → `/login`.
+- **Authentication is client-side only.** All table queries rely on Supabase **Row Level Security** (authenticated-only policies) — there is no middleware or server-side gate. There is no signup flow; the admin user is created in the Supabase Dashboard.
 - Shared components live at repo root `components/` and are imported via the `@/*` alias (e.g. `@/components/Navbar`). `@/*` maps to the repo root, so `@/app/...` is wrong — use `@/components/...`, `@/lib/...`.
 
 ## Supabase
 
 - `@supabase/supabase-js` is installed; `lib/supabase.ts` exports a client built from `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY`.
-- Nothing imports it yet, so builds work without env vars — but the moment it is imported, a missing var throws at runtime. `.env*` is gitignored; create `.env.local` locally (Next loads it automatically). Do not commit real keys.
+- **Build requires both env vars.** `createClient(undefined, …)` throws, so `next build` fails without them. `.env*` is gitignored — create `.env.local` locally (Next loads it automatically); CI passes the values from GitHub Actions `vars`. Do not commit real keys.
 
 ## Commands (no test or typecheck scripts exist)
 
@@ -40,4 +41,4 @@ Verification order before handing work back: `npm run lint` → `npx tsc --noEmi
 - Custom CSS animations are keyframes defined in `app/globals.css` (currently `zoom-in`, `fade-up`) applied via Tailwind arbitrary values, e.g. `animate-[zoom-in_0.7s_ease-out]`. Add new keyframes there — do **not** install an animation plugin.
 - Consistent aesthetic to reuse (not invent a new palette): `rounded-2xl`/`rounded-3xl` cards, translucent surfaces (`bg-white/80 backdrop-blur-xl`), primary buttons `bg-neutral-900 … dark:bg-white`, secondary as bordered `border-neutral-300`. Most pages support dark mode via `dark:` classes.
 - ESLint 9 flat config (`.next/`, `out/`, `build/`, `next-env.d.ts` ignored); lint with `npm run lint`.
-- No CI workflows and no pre-commit hooks exist in this repo.
+- CI exists at `.github/workflows/ci.yml` (lint → typecheck → build on push/PR). It needs `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` set as **GitHub Actions variables** or the build step fails. No pre-commit hooks exist.

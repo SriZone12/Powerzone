@@ -1,19 +1,30 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect } from "react";
 import Image from "next/image";
+import { useRouter } from "next/navigation";
+import { supabase } from "@/lib/supabase";
 
 export default function HomePage() {
-  const [mode, setMode] = useState<"hero" | "login">("hero");
-  const login = mode === "login";
+  const router = useRouter();
+
+  useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      const { data } = await supabase.auth.getSession();
+      if (cancelled) return;
+      if (data.session) router.replace("/dashboard");
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [router]);
 
   return (
     <main className="flex min-h-screen flex-col items-center justify-center px-6">
-      <div
-        className={`animate-zoom-in w-full max-w-md overflow-hidden rounded-3xl border border-neutral-200 bg-white/80 p-8 shadow-xl backdrop-blur-xl transition-all duration-700 ease-out dark:border-neutral-800 dark:bg-neutral-900/80 ${
-          login ? "sm:max-w-sm" : ""
-        }`}
-      >
+      <div className="animate-[zoom-in_0.7s_ease-out] w-full max-w-md overflow-hidden rounded-3xl border border-neutral-200 bg-white/80 p-8 text-center shadow-xl backdrop-blur dark:border-neutral-800 dark:bg-neutral-900/80">
         <div className="flex flex-col items-center text-center">
           <Image
             src="/logo.png"
@@ -21,79 +32,20 @@ export default function HomePage() {
             width={96}
             height={96}
             priority
-            className={`rounded-full object-contain transition-all duration-700 ease-out ${
-              login ? "h-12 w-12" : "h-24 w-24"
-            }`}
+            className="h-24 w-24 rounded-full object-contain"
           />
-          <h1
-            className={`mt-4 font-bold tracking-tight text-neutral-900 transition-all duration-700 ease-out dark:text-white ${
-              login ? "text-xl font-medium tracking-normal" : "text-4xl sm:text-5xl"
-            }`}
-          >
+          <h1 className="mt-4 text-4xl font-bold tracking-tight text-neutral-900 sm:text-5xl dark:text-white">
             Powerzone Fitness
           </h1>
-
-          <div
-            className={`overflow-hidden transition-all duration-500 ease-out ${
-              login ? "max-h-0 opacity-0" : "max-h-40 opacity-100 delay-150"
-            }`}
+          <p className="mt-3 max-w-sm text-sm text-neutral-500 dark:text-neutral-400">
+            Manage members, memberships, and daily attendance for your gym.
+          </p>
+          <button
+            onClick={() => router.push("/login")}
+            className="mt-8 w-48 rounded-lg bg-neutral-900 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-neutral-700 dark:bg-white dark:text-neutral-900 dark:hover:bg-neutral-300"
           >
-            <button
-              onClick={() => setMode("login")}
-              className="mt-8 w-48 rounded-lg bg-neutral-900 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-neutral-700 dark:bg-white dark:text-neutral-900 dark:hover:bg-neutral-300"
-            >
-              Login
-            </button>
-          </div>
-
-          <div
-            className={`w-full overflow-hidden text-left transition-all duration-700 ease-out ${
-              login ? "mt-4 max-h-96 opacity-100 delay-200" : "max-h-0 opacity-0"
-            }`}
-          >
-            <button
-              onClick={() => setMode("hero")}
-              className="mb-4 text-xs font-medium text-neutral-500 transition-colors hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-white"
-            >
-              ← Back
-            </button>
-            <form className="flex flex-col gap-5">
-              <div className="flex flex-col gap-2">
-                <label
-                  htmlFor="email"
-                  className="text-sm font-medium text-neutral-700 dark:text-neutral-300"
-                >
-                  Email
-                </label>
-                <input
-                  id="email"
-                  type="email"
-                  placeholder="admin@powerzone.com"
-                  className="rounded-lg border border-neutral-300 bg-white px-3 py-2.5 text-sm text-neutral-900 outline-none transition-colors focus:border-neutral-900 focus:ring-2 focus:ring-neutral-900/10 dark:border-neutral-700 dark:bg-neutral-950 dark:text-white dark:focus:border-white"
-                />
-              </div>
-              <div className="flex flex-col gap-2">
-                <label
-                  htmlFor="password"
-                  className="text-sm font-medium text-neutral-700 dark:text-neutral-300"
-                >
-                  Password
-                </label>
-                <input
-                  id="password"
-                  type="password"
-                  placeholder="••••••••"
-                  className="rounded-lg border border-neutral-300 bg-white px-3 py-2.5 text-sm text-neutral-900 outline-none transition-colors focus:border-neutral-900 focus:ring-2 focus:ring-neutral-900/10 dark:border-neutral-700 dark:bg-neutral-950 dark:text-white dark:focus:border-white"
-                />
-              </div>
-              <button
-                type="submit"
-                className="rounded-lg bg-neutral-900 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-neutral-700 dark:bg-white dark:text-neutral-900 dark:hover:bg-neutral-300"
-              >
-                Login
-              </button>
-            </form>
-          </div>
+            Login
+          </button>
         </div>
       </div>
     </main>
