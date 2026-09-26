@@ -18,17 +18,17 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 ## Commands
 
 ```bash
-npm run dev     # dev server, http://localhost:3000 (also regenerates the managed block above)
-npm run build   # production build — also typechecks via Next
-npm run lint    # eslint (flat config in eslint.config.mjs)
-npx tsc --noEmit  # typecheck; there is no npm script for this
+npm run dev       # dev server, http://localhost:3000 (also regenerates the managed block above)
+npm run build     # production build — also typechecks via Next
+npm run lint      # eslint (flat config in eslint.config.mjs)
+npm run typecheck # `next typegen && tsc --noEmit` — use this, not bare `npx tsc --noEmit`
 ```
 
-Verify in this order before handing work back: `npm run lint` → `npx tsc --noEmit` → `npm run build`. There is **no test framework**; do not invent one or claim tests pass.
+Verify in this order before handing work back: `npm run lint` → `npm run typecheck` → `npm run build`. There is **no test framework**; do not invent one or claim tests pass.
 
-- **`next-env.d.ts` and `.next/` are gitignored.** On a fresh clone, `npx tsc --noEmit` fails because the Next-generated globals (`LayoutProps`, `PageProps`) live in `.next/types/` and are pulled in via `next-env.d.ts`. Run `npm run dev` or `npm run build` once before trusting a typecheck.
+- **Always use `npm run typecheck`, never bare `npx tsc --noEmit`.** `next-env.d.ts` and `.next/` are gitignored, so a fresh clone has neither, and the Next-generated globals (`LayoutProps`, `PageProps`, `RouteContext`) are unresolved — `tsc` then fails with `TS2304: Cannot find name 'LayoutProps'` on `app/layout.tsx`. The `typecheck` script runs `next typegen` first, which writes `next-env.d.ts` and `.next/types/routes.d.ts` in about a second. Bare `tsc` only works if you have previously run `npm run dev` or `npm run build` in that working copy, which is why this tends to pass locally and fail in CI.
 - `npm run build` prints a harmless warning that a stray `/home/khatri/package-lock.json` is outside the git repo and ignored. It is not caused by this project's files.
-- No pre-commit hooks. CI (`.github/workflows/ci.yml`, Node 22) runs `lint` → `tsc --noEmit` → `build` on push to `main` and on PRs.
+- No pre-commit hooks. CI (`.github/workflows/ci.yml`, Node 22) runs `lint` → `typecheck` → `build` on push to `main` and on PRs.
 
 ## Architecture
 
@@ -50,14 +50,14 @@ Verify in this order before handing work back: `npm run lint` → `npx tsc --noE
   - Before adding or changing a column, ask the user to run it in Supabase; do not invent a migration folder.
 - `status` is constrained to `active` / `expired` (`STATUSES` in `app/(app)/members/page.tsx`); a bad value returns Postgres `23514`.
 - `membership_plan` stores the **label**, not the id (e.g. `"3-months"`, from `MEMBERSHIP_PLANS` in `lib/plans.ts`).
-- `membership_end` is derived by `addMonths()` in `app/(app)/members/add/page.tsx:368`, which clamps to the last day of the target month.
+- `membership_end` is derived by `addMonths()` in `lib/dates.ts`, which clamps to the last day of the target month (`Jan 31` + 1 month → `Feb 28`, and `Feb 29` in leap years). `lib/renew.ts` holds the renewal math, which stacks onto `max(today, membership_end)` so early renewals don't discard paid days.
 - Expiry runs **twice**, and the names don't match: the dashboard calls `supabase.rpc("expire_members")` on every load (`app/(app)/dashboard/page.tsx:37`) and **deliberately swallows the error** so the page still works if the function was never created; the README also describes a pg_cron job named `expire-memberships`. Don't "fix" one into the other without asking.
 
 ## Conventions that differ from defaults
 
 - **Always surface Supabase errors through `friendlyError(error.code)`** (`lib/errors.ts`), which maps Postgres codes (`42501`, `23505`, `23503`, `23514`, `42P01`) to plain English. Never show a raw `error.message` to the user or `console.log` an error. Two places intentionally bypass it for a better message: the duplicate-check-in path in `app/(app)/attendance/page.tsx` (`23505` → "already marked attendance today") and the swallowed `expire_members` RPC.
 - **Dates are local-time, timestamps are UTC.** `formatLocalDate()` builds `YYYY-MM-DD` from `getFullYear/getMonth/getDate`; `parseLocalDate()` parses with `new Date(\`${value}T00:00:00\`)`. Check-ins store `date: formatLocalDate(now)` but `check_in_time: new Date().toISOString()` (UTC) — these can disagree by a day in non-UTC timezones. **Never** use `toISOString().slice(0, 10)` as a date key.
-- Those date helpers are **copy-pasted per page, not shared in `lib/`**: `formatLocalDate` exists in `app/(app)/attendance/page.tsx`, `app/(app)/dashboard/page.tsx`, and `app/(app)/members/add/page.tsx`. Same for the `inputClass` string constant. When adding a helper, decide deliberately whether to keep copying or promote it to `lib/` — don't create a duplicate by accident.
+- Shared date/UI helpers live in `lib/dates.ts` (`formatLocalDate`, `parseLocalDate`, `parseYmd`, `formatYmd`, `daysUntil`, `addMonths`, `todayYmd`) and `lib/ui.ts` (`inputClass`, `primaryButtonClass`, `secondaryButtonClass`); modal primitives are in `components/Modal.tsx` (`Modal`, `Field`). They used to be copy-pasted per page, which is why `app/(app)/members/page.tsx` rendered `membership_end` a day early — always import from `lib/` rather than re-declaring a local copy.
 - Nested selects like `members(full_name)` come back as an object *or* a one-element array depending on the relationship; normalize with `Array.isArray(r.members) ? r.members[0] : r.members`.
 - Tailwind CSS **v4**, CSS-first: there is no `tailwind.config.*`. Theme vars and custom keyframes live in `app/globals.css`; PostCSS wiring is in `postcss.config.mjs`.
 - Custom animations are keyframes in `app/globals.css` (currently `zoom-in`, `fade-up`) applied via arbitrary values, e.g. `animate-[zoom-in_0.7s_ease-out]`. Add keyframes there — do **not** install an animation plugin.
