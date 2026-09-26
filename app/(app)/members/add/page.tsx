@@ -6,9 +6,9 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { MEMBERSHIP_PLANS as PLANS } from "@/lib/plans";
 import { friendlyError } from "@/lib/errors";
+import { addMonths, formatLocalDate, parseLocalDate } from "@/lib/dates";
+import { inputClass } from "@/lib/ui";
 
-const inputClass =
-  "rounded-lg border border-neutral-300 bg-white px-3 py-2.5 text-sm text-neutral-900 outline-none transition-colors focus:border-neutral-900 focus:ring-2 focus:ring-neutral-900/10 disabled:cursor-not-allowed disabled:opacity-50 dark:border-neutral-700 dark:bg-neutral-950 dark:text-white dark:focus:border-white";
 
 const MONTHS = [
   "January",
@@ -352,25 +352,4 @@ function CalendarPicker({
       )}
     </div>
   );
-}
-
-function parseLocalDate(value: string) {
-  return new Date(`${value}T00:00:00`);
-}
-
-function formatLocalDate(date: Date) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
-function addMonths(startDate: string, months: number) {
-  const date = parseLocalDate(startDate);
-  const day = date.getDate();
-  date.setDate(1);
-  date.setMonth(date.getMonth() + months);
-  const lastDay = new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
-  date.setDate(Math.min(day, lastDay));
-  return formatLocalDate(date);
 }

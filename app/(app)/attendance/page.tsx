@@ -2,12 +2,12 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { FormEvent } from "react";
-import { CalendarDays, UserPlus, Users, Clock } from "lucide-react";
+import { CalendarDays, UserPlus, Users, Clock, History } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { friendlyError } from "@/lib/errors";
+import { formatLocalDate, formatYmd } from "@/lib/dates";
+import { inputClass } from "@/lib/ui";
 
-const inputClass =
-  "rounded-lg border border-neutral-300 bg-white px-3 py-2.5 text-sm text-neutral-900 outline-none transition-colors focus:border-neutral-900 focus:ring-2 focus:ring-neutral-900/10 disabled:cursor-not-allowed disabled:opacity-50 dark:border-neutral-700 dark:bg-neutral-950 dark:text-white dark:focus:border-white";
 
 type ActiveMember = {
   id: string;
@@ -18,6 +18,15 @@ type TodayRow = {
   check_in_time: string | null;
   members: { full_name: string | null } | null;
 };
+
+type HistoryRow = {
+  id: string;
+  date: string | null;
+  check_in_time: string | null;
+  member_name: string | null;
+};
+
+const HISTORY_LIMIT = 100;
 
 function toTodayRows(rows: unknown[]): TodayRow[] {
   return rows.map((row) => {
@@ -30,6 +39,27 @@ function toTodayRows(rows: unknown[]): TodayRow[] {
     };
     const member = Array.isArray(r.members) ? r.members[0] : r.members;
     return { check_in_time: r.check_in_time, members: member ?? null };
+  });
+}
+
+function toHistoryRows(rows: unknown[]): HistoryRow[] {
+  return rows.map((row) => {
+    const r = row as {
+      id: string;
+      date: string | null;
+      check_in_time: string | null;
+      members:
+        | { full_name: string | null }
+        | { full_name: string | null }[]
+        | null;
+    };
+    const member = Array.isArray(r.members) ? r.members[0] : r.members;
+    return {
+      id: r.id,
+      date: r.date ?? null,
+      check_in_time: r.check_in_time ?? null,
+      member_name: member?.full_name ?? null,
+    };
   });
 }
 
@@ -58,11 +88,21 @@ export default function AttendancePage() {
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
+  const [allMembers, setAllMembers] = useState<ActiveMember[]>([]);
+  const [historyMode, setHistoryMode] = useState<"date" | "member">("date");
+  const [historyDate, setHistoryDate] = useState(today.date);
+  const [historyMemberId, setHistoryMemberId] = useState("");
+  const [historyRows, setHistoryRows] = useState<HistoryRow[]>([]);
+  const [historyCount, setHistoryCount] = useState(0);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  const [historyFetched, setHistoryFetched] = useState(false);
+
   useEffect(() => {
     let cancelled = false;
 
     (async () => {
-      const [membersRes, todayRes] = await Promise.all([
+      const [membersRes, todayRes, allMembersRes] = await Promise.all([
         supabase
           .from("members")
           .select("id, full_name")
@@ -73,6 +113,11 @@ export default function AttendancePage() {
           .select("check_in_time, members(full_name)")
           .eq("date", today.date)
           .order("check_in_time"),
+        // Every member, not just active ones — expired members still have history.
+        supabase
+          .from("members")
+          .select("id, full_name")
+          .order("full_name"),
       ]);
 
       if (cancelled) return;
@@ -82,6 +127,9 @@ export default function AttendancePage() {
 
       if (todayRes.error) setTodayError(friendlyError(todayRes.error.code));
       else setTodayRows(toTodayRows(todayRes.data ?? []));
+
+      if (allMembersRes.error) setHistoryError(friendlyError(allMembersRes.error.code));
+      else setAllMembers(allMembersRes.data ?? []);
 
       setMembersLoading(false);
       setTodayLoading(false);
@@ -151,6 +199,68 @@ export default function AttendancePage() {
     setSelectedMemberId("");
     setActionSuccess("Attendance marked successfully.");
     await loadToday();
+  }
+
+  function resetHistory() {
+    setHistoryRows([]);
+    setHistoryCount(0);
+    setHistoryError(null);
+    setHistoryFetched(false);
+  }
+
+  async function fetchHistory() {
+    if (historyMode === "date" && !historyDate) {
+      setHistoryError("Please select a date.");
+      return;
+    }
+    if (historyMode === "member" && !historyMemberId) {
+      setHistoryError("Please select a member.");
+      return;
+    }
+
+    setHistoryLoading(true);
+    resetHistory();
+
+    if (historyMode === "date") {
+      const { data, error, count } = await supabase
+        .from("attendance")
+        .select("id, check_in_time, members(full_name)", { count: "exact" })
+        .eq("date", historyDate)
+        .order("check_in_time")
+        .order("id")
+        .limit(HISTORY_LIMIT);
+
+      setHistoryLoading(false);
+
+      if (error) {
+        setHistoryError(friendlyError(error.code));
+        return;
+      }
+
+      setHistoryRows(
+        toHistoryRows(data ?? []).map((row) => ({ ...row, date: historyDate }))
+      );
+      setHistoryCount(count ?? 0);
+    } else {
+      const { data, error, count } = await supabase
+        .from("attendance")
+        .select("id, date, check_in_time", { count: "exact" })
+        .eq("member_id", historyMemberId)
+        .order("date", { ascending: false })
+        .limit(HISTORY_LIMIT);
+
+      setHistoryLoading(false);
+
+      if (error) {
+        setHistoryError(friendlyError(error.code));
+        return;
+      }
+
+      setHistoryRows(toHistoryRows(data ?? []));
+      setHistoryCount(count ?? 0);
+    }
+
+    setHistoryFetched(true);
   }
 
   return (
@@ -280,16 +390,137 @@ export default function AttendancePage() {
           )}
         </section>
       </div>
+
+      <section className="mt-6 rounded-2xl border border-neutral-200 bg-white/80 p-6 backdrop-blur dark:border-neutral-800 dark:bg-neutral-900/80">
+        <h2 className="flex items-center gap-2 text-base font-semibold text-neutral-900 dark:text-white">
+          <History className="h-4 w-4 text-neutral-400" />
+          Attendance History
+        </h2>
+        <p className="mt-2 text-sm text-neutral-500 dark:text-neutral-400">
+          Look up check-ins for a specific date or a specific member.
+        </p>
+
+        <div className="mt-4 flex w-fit gap-1 rounded-xl border border-neutral-200 bg-neutral-100 p-1 dark:border-neutral-800 dark:bg-neutral-800/60">
+          {(["date", "member"] as const).map((mode) => (
+            <button
+              key={mode}
+              type="button"
+              aria-pressed={historyMode === mode}
+              onClick={() => {
+                setHistoryMode(mode);
+                resetHistory();
+              }}
+              className={`rounded-lg px-4 py-1.5 text-sm font-medium transition-colors ${
+                historyMode === mode
+                  ? "bg-white text-neutral-900 shadow-sm dark:bg-neutral-700 dark:text-white"
+                  : "text-neutral-500 hover:text-neutral-700 dark:text-neutral-400 dark:hover:text-neutral-200"
+              }`}
+            >
+              {mode === "date" ? "By Date" : "By Member"}
+            </button>
+          ))}
+        </div>
+
+        <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center">
+          {historyMode === "date" ? (
+            <input
+              type="date"
+              value={historyDate}
+              max={today.date}
+              onChange={(e) => setHistoryDate(e.target.value)}
+              aria-label="Select date"
+              className={`${inputClass} sm:w-52`}
+            />
+          ) : (
+            <select
+              value={historyMemberId}
+              onChange={(e) => setHistoryMemberId(e.target.value)}
+              aria-label="Select member"
+              className={`${inputClass} sm:w-64`}
+            >
+              <option value="">Select a member…</option>
+              {allMembers.map((member) => (
+                <option key={member.id} value={member.id}>
+                  {member.full_name}
+                </option>
+              ))}
+            </select>
+          )}
+          <button
+            type="button"
+            onClick={fetchHistory}
+            disabled={historyLoading}
+            className="flex items-center justify-center gap-2 rounded-lg bg-neutral-900 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-neutral-700 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-white dark:text-neutral-900 dark:hover:bg-neutral-300"
+          >
+            {historyLoading && (
+              <span className="h-4 w-4 animate-spin rounded-full border-2 border-neutral-400 border-t-white dark:border-neutral-400 dark:border-t-neutral-900" />
+            )}
+            {historyLoading ? "Loading…" : "View"}
+          </button>
+        </div>
+
+        {historyError && (
+          <p className="mt-4 text-sm font-medium text-red-600 dark:text-red-400">
+            {historyError}
+          </p>
+        )}
+
+        {historyFetched && !historyLoading && (
+          historyRows.length === 0 ? (
+            <div className="py-12 text-center">
+              <p className="text-sm font-medium text-neutral-700 dark:text-neutral-300">
+                No attendance records found
+              </p>
+              <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
+                {historyMode === "date"
+                  ? "No one checked in on this date."
+                  : "This member has no recorded check-ins."}
+              </p>
+            </div>
+          ) : (
+            <div className="mt-6 overflow-x-auto">
+              <table className="w-full text-left text-sm">
+                <thead>
+                  <tr className="border-b border-neutral-200 text-xs uppercase tracking-wide text-neutral-500 dark:border-neutral-800 dark:text-neutral-400">
+                    <th className="py-3 pr-6 font-medium">
+                      {historyMode === "date" ? "Member" : "Date"}
+                    </th>
+                    <th className="py-3 font-medium">Check-in Time</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-neutral-200 dark:divide-neutral-800">
+                  {historyRows.map((row) => (
+                    <tr
+                      key={row.id}
+                      className="transition-colors hover:bg-neutral-50 dark:hover:bg-neutral-900"
+                    >
+                      <td className="py-4 pr-6 font-medium text-neutral-900 dark:text-white">
+                        {historyMode === "date"
+                          ? (row.member_name ?? "Unknown member")
+                          : row.date
+                            ? formatYmd(row.date)
+                            : "—"}
+                      </td>
+                      <td className="py-4 text-neutral-600 dark:text-neutral-300">
+                        {row.check_in_time ? displayTime(row.check_in_time) : "—"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <p className="mt-3 text-xs text-neutral-400 dark:text-neutral-500">
+                {historyCount > historyRows.length
+                  ? `Showing the most recent ${historyRows.length} of ${historyCount} records.`
+                  : `${historyCount} record${historyCount !== 1 ? "s" : ""} found`}
+              </p>
+            </div>
+          )
+        )}
+      </section>
     </div>
   );
 }
 
-function formatLocalDate(date: Date) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
 
 function displayTime(value: string) {
   return new Date(value).toLocaleTimeString("en-US", {

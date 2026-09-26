@@ -1,19 +1,22 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { FormEvent } from "react";
-import { Pencil, Trash2, X, Loader2 } from "lucide-react";
+import Link from "next/link";
+import { Pencil, Trash2, Loader2, UserPlus, RefreshCw } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { MEMBERSHIP_PLANS } from "@/lib/plans";
 import { friendlyError } from "@/lib/errors";
+import { formatYmd } from "@/lib/dates";
+import { inputClass } from "@/lib/ui";
+import { Modal, Field } from "@/components/Modal";
+import RenewModal from "@/components/RenewModal";
 
 const STATUSES = [
   { value: "active", label: "Active" },
   { value: "expired", label: "Expired" },
 ];
 
-const inputClass =
-  "rounded-lg border border-neutral-300 bg-white px-3 py-2.5 text-sm text-neutral-900 outline-none transition-colors focus:border-neutral-900 focus:ring-2 focus:ring-neutral-900/10 disabled:cursor-not-allowed disabled:opacity-50 dark:border-neutral-700 dark:bg-neutral-950 dark:text-white dark:focus:border-white";
 
 type Member = {
   id: string;
@@ -30,9 +33,13 @@ export default function MembersPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [editMember, setEditMember] = useState<Member | null>(null);
+  const [renewTarget, setRenewTarget] = useState<Member | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Member | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+
 
   async function refresh() {
     const { data, error } = await supabase.from("members").select("*").order("full_name");
@@ -78,19 +85,64 @@ export default function MembersPage() {
     await refresh();
   }
 
+  const filteredMembers = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return members.filter((m) => {
+      const matchesSearch =
+        !q ||
+        m.full_name.toLowerCase().includes(q) ||
+        (m.phone ?? "").toLowerCase().includes(q) ||
+        (m.email ?? "").toLowerCase().includes(q);
+      const matchesStatus =
+        statusFilter === "all" || m.status === statusFilter;
+      return matchesSearch && matchesStatus;
+    });
+  }, [members, search, statusFilter]);
+
   return (
     <div>
-      <h1 className="text-2xl font-bold tracking-tight text-neutral-900 sm:text-3xl dark:text-white">
-        Members
-      </h1>
+      <div className="flex items-center justify-between gap-4">
+        <h1 className="text-2xl font-bold tracking-tight text-neutral-900 sm:text-3xl dark:text-white">
+          Members
+        </h1>
+        <Link
+          href="/members/add"
+          className="flex items-center gap-2 rounded-lg bg-neutral-900 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-neutral-700 dark:bg-white dark:text-neutral-900 dark:hover:bg-neutral-300"
+        >
+          <UserPlus className="h-4 w-4" />
+          Add Member
+        </Link>
+      </div>
       <div className="mt-3 h-px w-16 bg-neutral-300 dark:bg-neutral-700" />
       <p className="mt-4 text-neutral-500 dark:text-neutral-400">
         Manage all registered gym members.
       </p>
 
+
       {error && (
         <div className="mt-6 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700 dark:border-red-800 dark:bg-red-900/30 dark:text-red-300">
           {error}
+        </div>
+      )}
+
+      {!loading && members.length > 0 && (
+        <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center">
+          <input
+            type="search"
+            placeholder="Search by name, phone or email…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className={`${inputClass} flex-1`}
+          />
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            className={`${inputClass} sm:w-40`}
+          >
+            <option value="all">All Status</option>
+            <option value="active">Active</option>
+            <option value="expired">Expired</option>
+          </select>
         </div>
       )}
 
@@ -109,6 +161,15 @@ export default function MembersPage() {
               Members will appear here once you add them.
             </p>
           </div>
+        ) : filteredMembers.length === 0 ? (
+          <div className="px-6 py-16 text-center">
+            <p className="text-sm font-medium text-neutral-700 dark:text-neutral-300">
+              No members match your search
+            </p>
+            <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
+              Try a different name, phone, email or status filter.
+            </p>
+          </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
@@ -124,7 +185,7 @@ export default function MembersPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-neutral-200 dark:divide-neutral-800">
-                {members.map((member) => (
+                {filteredMembers.map((member) => (
                   <tr
                     key={member.id}
                     className="transition-colors hover:bg-neutral-50 dark:hover:bg-neutral-900"
@@ -151,10 +212,18 @@ export default function MembersPage() {
                       <StatusBadge status={member.status} />
                     </td>
                     <td className="px-6 py-4 text-neutral-600 dark:text-neutral-300">
-                      {member.membership_end ? formatDate(member.membership_end) : "—"}
+                      {member.membership_end ? formatYmd(member.membership_end) : "—"}
                     </td>
                     <td className="px-6 py-4">
                       <div className="flex items-center justify-end gap-1">
+                        <button
+                          type="button"
+                          onClick={() => setRenewTarget(member)}
+                          aria-label={`Renew ${member.full_name}`}
+                          className="rounded-lg p-2 text-neutral-500 transition-colors hover:bg-emerald-500/10 hover:text-emerald-600 dark:text-neutral-400 dark:hover:bg-emerald-500/15 dark:hover:text-emerald-400"
+                        >
+                          <RefreshCw className="h-4 w-4" />
+                        </button>
                         <button
                           type="button"
                           onClick={() => setEditMember(member)}
@@ -183,6 +252,14 @@ export default function MembersPage() {
           </div>
         )}
       </div>
+
+      {renewTarget && (
+        <RenewModal
+          member={renewTarget}
+          onClose={() => setRenewTarget(null)}
+          onRenewed={refresh}
+        />
+      )}
 
       {editMember && (
         <EditMemberModal
@@ -378,63 +455,6 @@ function EditMemberModal({
   );
 }
 
-function Modal({
-  title,
-  onClose,
-  children,
-}: {
-  title: string;
-  onClose: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative w-full max-w-md rounded-2xl border border-neutral-200 bg-white p-6 shadow-xl dark:border-neutral-800 dark:bg-neutral-900">
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold tracking-tight text-neutral-900 dark:text-white">
-            {title}
-          </h2>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            className="rounded-lg p-1.5 text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-700 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-        <div className="mt-4">{children}</div>
-      </div>
-    </div>
-  );
-}
-
-function Field({
-  label,
-  htmlFor,
-  required,
-  children,
-}: {
-  label: string;
-  htmlFor: string;
-  required?: boolean;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="flex flex-col gap-2">
-      <label
-        htmlFor={htmlFor}
-        className="text-sm font-medium text-neutral-700 dark:text-neutral-300"
-      >
-        {label}
-        {required && <span className="text-red-500 dark:text-red-400"> *</span>}
-      </label>
-      {children}
-    </div>
-  );
-}
-
 function StatusBadge({ status }: { status: string | null }) {
   if (!status) return <span className="text-neutral-400">—</span>;
 
@@ -451,12 +471,4 @@ function StatusBadge({ status }: { status: string | null }) {
       {status}
     </span>
   );
-}
-
-function formatDate(value: string) {
-  return new Date(value).toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  });
 }
