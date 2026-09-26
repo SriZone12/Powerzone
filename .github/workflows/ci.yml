@@ -9,8 +9,13 @@ jobs:
   lint-typecheck-build:
     runs-on: ubuntu-latest
     env:
-      NEXT_PUBLIC_SUPABASE_URL: ${{ vars.NEXT_PUBLIC_SUPABASE_URL }}
-      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ vars.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+      # The build only needs these values to be *present* — pages are statically
+      # prerendered, but all Supabase reads happen client-side in useEffect, so no
+      # network call is made at build time. Prefer the real repo variables when
+      # they exist; fall back to placeholders so CI can still validate that the
+      # app compiles even when the variables have not been configured yet.
+      NEXT_PUBLIC_SUPABASE_URL: ${{ vars.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co' }}
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ vars.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder-anon-key' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
